@@ -1,0 +1,79 @@
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({
+      error: "POST requests only"
+    });
+  }
+
+  const key = process.env.OPENAI_API_KEY;
+
+  if (!key) {
+    return res.status(503).json({
+      error: "AI API key is not configured in Vercel."
+    });
+  }
+
+  try {
+    const { task, prompt } = req.body || {};
+
+    const roles = {
+      assistant: "You are DA Business Agent, a helpful business assistant.",
+      trading: "You are a trading research assistant. Explain risks and never invent live market data.",
+      fantasy: "You are a fantasy animation writer. Create original episode outlines and scene prompts.",
+      youtube: "You are a YouTube content assistant. Create titles, descriptions and publishing plans."
+    };
+
+    if (
+      !Object.hasOwn(roles, task) ||
+      typeof prompt !== "string" ||
+      !prompt.trim()
+    ) {
+      return res.status(400).json({
+        error: "Enter a valid task and prompt."
+      });
+    }
+
+    const response = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${key}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+          messages: [
+            { role: "system", content: roles[task] },
+            { role: "user", content: prompt.trim() }
+          ],
+          max_tokens: 1200
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("AI provider error:", response.status);
+      return res.status(502).json({
+        error: response.status === 401
+          ? "Invalid API key. Check Vercel settings."
+          : response.status === 429
+          ? "AI quota or rate limit reached. Check API billing."
+          : "AI provider request failed."
+      });
+    }
+
+    return res.status(200).json({
+      answer: data.choices?.[0]?.message?.content || "No response received."
+    });
+  } catch (error) {
+    console.error("AI backend error:", error.message);
+    return res.status(500).json({
+      error: "AI request failed. Check Vercel function logs."
+    });
+  }
+}
